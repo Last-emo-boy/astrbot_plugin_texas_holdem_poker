@@ -119,7 +119,7 @@ def evaluate_hand(cards: list) -> tuple:
 # -------------------------
 # 德州扑克插件
 # -------------------------
-@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.1.0", "https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker")
+@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.2.0", "https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker")
 class TexasHoldemPoker(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -127,6 +127,56 @@ class TexasHoldemPoker(Star):
         self.games = {}  # 存储各群游戏状态
         self.tokens_file = os.path.join(os.path.dirname(__file__), "tokens.json")
         self.tokens = self.load_tokens()
+        # 新增：保存游戏记录和排行榜统计
+        self.game_records_file = os.path.join(os.path.dirname(__file__), "game_records.json")
+        self.game_records = self.load_game_records()
+        self.ranking_file = os.path.join(os.path.dirname(__file__), "ranking.json")
+        self.ranking = self.load_ranking()
+
+    def load_game_records(self):
+        try:
+            if os.path.exists(self.game_records_file):
+                with open(self.game_records_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            print("加载游戏记录失败:", e)
+        return []
+
+    def save_game_records(self):
+        try:
+            with open(self.game_records_file, "w", encoding="utf-8") as f:
+                json.dump(self.game_records, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print("保存游戏记录失败:", e)
+
+    def load_ranking(self):
+        try:
+            if os.path.exists(self.ranking_file):
+                with open(self.ranking_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            print("加载排名失败:", e)
+        return {}
+
+    def save_ranking(self):
+        try:
+            with open(self.ranking_file, "w", encoding="utf-8") as f:
+                json.dump(self.ranking, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print("保存排名失败:", e)
+
+    def update_ranking(self, winners: list, game: PokerGame):
+        # winners 为 [(player_id, player_name), ...]
+        for p in game.players:
+            pid = p["id"]
+            name = p["name"]
+            if pid not in self.ranking:
+                self.ranking[pid] = {"name": name, "games_played": 0, "wins": 0}
+            self.ranking[pid]["games_played"] += 1
+            if any(w[0] == pid for w in winners):
+                self.ranking[pid]["wins"] += 1
+        self.save_ranking()
+
 
     def load_tokens(self):
         try:
@@ -170,7 +220,8 @@ class TexasHoldemPoker(Star):
         yield event.plain_result(
             f"新德州扑克游戏开始！买入: {buyin}, 小盲注: {small_blind}, 大盲注: {big_blind}, 每轮跟注金额: {bet_amount}, 最大玩家: {max_players}。\n请发送 `/poker join` 加入游戏。"
         )
-
+        
+    @permission_type(PermissionType.ADMIN)
     @poker.command("add_balance")
     async def add_balance(self, event: AstrMessageEvent, amount: int):
         '''增加余额：给当前用户增加指定数量的代币'''
@@ -448,7 +499,8 @@ class TexasHoldemPoker(Star):
 
     @poker.command("showdown")
     async def showdown(self, event: AstrMessageEvent):
-        '''摊牌：计算每个玩家的最佳手牌并决定赢家'''
+        '''摊牌：计算最佳手牌，决定赢家，保存详细记录，并输出最终余额'''
+        import time  # 确保导入 time 模块
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
@@ -466,18 +518,19 @@ class TexasHoldemPoker(Star):
                 return
             total_cards = player["cards"] + game.community_cards
             hand_rank = evaluate_hand(total_cards)
-            results[player["id"]] = (player["name"], hand_rank)
+            results[player["id"]] = {"name": player["name"], "hand_rank": hand_rank, "cards": player["cards"]}
         best = None
         winners = []
-        for pid, (name, rank) in results.items():
+        for pid, info in results.items():
+            rank = info["hand_rank"]
             if best is None or rank > best:
                 best = rank
-                winners = [(pid, name)]
+                winners = [(pid, info["name"])]
             elif rank == best:
-                winners.append((pid, name))
+                winners.append((pid, info["name"]))
         msg = "摊牌结果：\n"
-        for pid, (name, rank) in results.items():
-            msg += f"{name}: {rank}\n"
+        for pid, info in results.items():
+            msg += f"{info['name']}: {info['hand_rank']} (手牌: {' '.join(info['cards'])})\n"
         if len(winners) == 1:
             winner_name = winners[0][1]
             msg += f"\n赢家是 {winner_name}，赢得彩池 {game.pot} 代币！"
@@ -488,18 +541,43 @@ class TexasHoldemPoker(Star):
             share = game.pot // len(winners)
             for pid, name in winners:
                 self.tokens[group_id][pid] += share
-                
-        # 在决定赢家之后，输出所有参与玩家的最终余额
-        final_balances = "参与玩家最终余额：\n"
-        for player in game.players:
-            uid = player["id"]
-            balance = self.tokens[group_id].get(uid, self.config.get("initial_token", 1000))
-            final_balances += f"{player['name']}: {balance} 代币\n"
-        yield event.plain_result(final_balances)
-
         self.save_tokens()
-        yield event.plain_result(msg)
+
+        # 保存详细游戏记录
+        game_record = {
+            "group_id": group_id,
+            "phase": game.phase,
+            "pot": game.pot,
+            "community_cards": game.community_cards,
+            "players": [
+                {
+                    "id": p["id"],
+                    "name": p["name"],
+                    "final_bet": p["round_bet"],
+                    "hand": p["cards"],
+                    "active": p["active"],
+                    "hand_rank": results.get(p["id"], {}).get("hand_rank")
+                }
+                for p in game.players
+            ],
+            "winners": winners,
+            "timestamp": int(time.time())
+        }
+        self.game_records.append(game_record)
+        self.save_game_records()
+
+        # 更新排行榜数据
+        self.update_ranking(winners, game)
+
+        # 输出参与玩家最终余额信息
+        final_balances = "参与玩家最终余额：\n"
+        for p in game.players:
+            uid = p["id"]
+            balance = self.tokens[group_id].get(uid, self.config.get("initial_token", 1000))
+            final_balances += f"{p['name']}: {balance} 代币\n"
+        yield event.plain_result(msg + "\n" + final_balances)
         del self.games[group_id]
+
 
     @poker.command("status")
     async def game_status(self, event: AstrMessageEvent):
