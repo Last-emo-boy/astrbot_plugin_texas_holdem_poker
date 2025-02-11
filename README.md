@@ -2,7 +2,7 @@
 
 **插件名称**: Texas Hold'em Poker Bot  
 **作者**: w33d  
-**版本**: 1.2.0  
+**版本**: 1.3.0  
 **仓库**: [GitHub 地址](https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker)
 
 ## 插件简介
