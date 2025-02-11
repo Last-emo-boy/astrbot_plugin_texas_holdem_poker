@@ -384,11 +384,11 @@ class TexasHoldemPoker(Star):
                     p["round_bet"] = 0
             game.current_bet = game.bet_amount
             TMPL = '''
-            <div style="font-size:24px; font-family:Arial, sans-serif; text-align:center; padding:20px; background:#f2f2f2; border-radius:8px;">
-                <h2 style="color:#2c3e50;">翻牌阶段</h2>
-                <p style="margin:10px 0;">翻牌: <span style="font-weight:bold;">{{ cards }}</span></p>
-                <p style="margin:10px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
-                <p style="margin:10px 0;">请使用 /poker call 跟注，或 /poker next 进入下一阶段</p>
+            <div style="font-size:32px; font-family:Arial, sans-serif; text-align:center; padding:30px; background:#e0f7fa; border-radius:10px;">
+                <h2 style="color:#2c3e50; margin-bottom:20px;">翻牌阶段</h2>
+                <p style="margin:20px 0;">翻牌: <span style="font-weight:bold;">{{ cards }}</span></p>
+                <p style="margin:20px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
+                <p style="margin:20px 0;">请使用 /poker call 跟注，或 /poker next 进入下一阶段</p>
             </div>
             '''
             data = {"cards": " ".join(flop_cards), "current_bet": game.current_bet}
@@ -405,11 +405,11 @@ class TexasHoldemPoker(Star):
                     p["round_bet"] = 0
             game.current_bet = game.bet_amount
             TMPL = '''
-            <div style="font-size:24px; font-family:Arial, sans-serif; text-align:center; padding:20px; background:#f2f2f2; border-radius:8px;">
-                <h2 style="color:#2c3e50;">转牌阶段</h2>
-                <p style="margin:10px 0;">转牌: <span style="font-weight:bold;">{{ card }}</span></p>
-                <p style="margin:10px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
-                <p style="margin:10px 0;">请使用 /poker call 跟注，或 /poker next 进入下一阶段</p>
+            <div style="font-size:32px; font-family:Arial, sans-serif; text-align:center; padding:30px; background:#e8f5e9; border-radius:10px;">
+                <h2 style="color:#2c3e50; margin-bottom:20px;">转牌阶段</h2>
+                <p style="margin:20px 0;">转牌: <span style="font-weight:bold;">{{ card }}</span></p>
+                <p style="margin:20px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
+                <p style="margin:20px 0;">请使用 /poker call 跟注，或 /poker next 进入下一阶段</p>
             </div>
             '''
             data = {"card": turn_card, "current_bet": game.current_bet}
@@ -426,11 +426,11 @@ class TexasHoldemPoker(Star):
                     p["round_bet"] = 0
             game.current_bet = game.bet_amount
             TMPL = '''
-            <div style="font-size:24px; font-family:Arial, sans-serif; text-align:center; padding:20px; background:#f2f2f2; border-radius:8px;">
-                <h2 style="color:#2c3e50;">河牌阶段</h2>
-                <p style="margin:10px 0;">河牌: <span style="font-weight:bold;">{{ card }}</span></p>
-                <p style="margin:10px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
-                <p style="margin:10px 0;">请使用 /poker call 跟注，或 /poker next 进入摊牌阶段</p>
+            <div style="font-size:32px; font-family:Arial, sans-serif; text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
+                <h2 style="color:#2c3e50; margin-bottom:20px;">河牌阶段</h2>
+                <p style="margin:20px 0;">河牌: <span style="font-weight:bold;">{{ card }}</span></p>
+                <p style="margin:20px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
+                <p style="margin:20px 0;">请使用 /poker call 跟注，或 /poker next 进入摊牌阶段</p>
             </div>
             '''
             data = {"card": river_card, "current_bet": game.current_bet}
@@ -442,6 +442,7 @@ class TexasHoldemPoker(Star):
                 yield result
         else:
             yield event.plain_result("游戏阶段错误。")
+
 
 
 
@@ -502,7 +503,7 @@ class TexasHoldemPoker(Star):
 
     @poker.command("status")
     async def game_status(self, event: AstrMessageEvent):
-        '''显示当前游戏状态（美化渲染版）'''
+        '''显示当前游戏状态（美化版）'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
@@ -527,55 +528,55 @@ class TexasHoldemPoker(Star):
         <head>
             <style>
                 body {
-                    font-family: 'Arial', sans-serif;
-                    background-color: #f7f7f7;
+                    font-family: Arial, sans-serif;
+                    background-color: #f0f0f0;
                     margin: 0;
                     padding: 20px;
                 }
                 .container {
-                    background-color: #fff;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                    padding: 20px;
+                    background-color: #ffffff;
+                    border-radius: 10px;
+                    padding: 30px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                    text-align: center;
                 }
                 h2 {
-                    color: #2c3e50;
-                    text-align: center;
+                    font-size: 36px;
+                    color: #333;
                     margin-bottom: 20px;
                 }
-                .status {
-                    font-size: 18px;
-                    margin-bottom: 10px;
+                p {
+                    font-size: 32px;
+                    margin: 10px 0;
                 }
                 .players {
-                    margin-top: 20px;
+                    margin-top: 30px;
+                    text-align: left;
                 }
                 .player {
-                    border-bottom: 1px solid #ecf0f1;
-                    padding: 10px 0;
+                    font-size: 32px;
+                    padding: 10px;
+                    border-bottom: 1px solid #e0e0e0;
                 }
                 .player:last-child {
                     border-bottom: none;
-                }
-                .label {
-                    font-weight: bold;
                 }
             </style>
         </head>
         <body>
             <div class="container">
                 <h2>德州扑克游戏状态</h2>
-                <p class="status">游戏阶段：{{ phase }}</p>
-                <p class="status">彩池：{{ pot }} 代币</p>
-                <p class="status">公共牌：{{ community_cards }}</p>
+                <p>游戏阶段: <strong>{{ phase }}</strong></p>
+                <p>彩池: <strong>{{ pot }}</strong> 代币</p>
+                <p>公共牌: <strong>{{ community_cards }}</strong></p>
                 <div class="players">
                     <h3>玩家信息</h3>
                     {% for player in players %}
                     <div class="player">
-                        <p><span class="label">姓名：</span>{{ player.name }}</p>
-                        <p><span class="label">状态：</span>{{ player.status }}</p>
-                        <p><span class="label">本轮投注：</span>{{ player.round_bet }} 代币</p>
-                        <p><span class="label">手牌：</span>{{ player.cards }}</p>
+                        <p>姓名: <strong>{{ player.name }}</strong></p>
+                        <p>状态: <strong>{{ player.status }}</strong></p>
+                        <p>本轮投注: <strong>{{ player.round_bet }}</strong> 代币</p>
+                        <p>手牌: <strong>{{ player.cards }}</strong></p>
                     </div>
                     {% endfor %}
                 </div>
@@ -585,6 +586,7 @@ class TexasHoldemPoker(Star):
         '''
         url = await self.html_render(TMPL, data)
         yield event.image_result(url)
+
 
 
     @poker.command("tokens")
@@ -604,3 +606,58 @@ class TexasHoldemPoker(Star):
             yield event.plain_result("当前游戏已重置。")
         else:
             yield event.plain_result("当前群聊没有进行中的游戏。")
+    
+    @poker.command("allin")
+    async def allin(self, event: AstrMessageEvent):
+        '''全压：将你的剩余代币全部投入当前投注'''
+        group_id = self.get_group_id(event)
+        if group_id not in self.games:
+            yield event.plain_result("当前群聊没有正在进行的游戏。")
+            return
+        game = self.games[group_id]
+        sender_id = event.get_sender_id()
+        player = None
+        for p in game.players:
+            if p["id"] == sender_id and p["active"]:
+                player = p
+                break
+        if not player:
+            yield event.plain_result("你不在当前游戏中或已弃牌。")
+            return
+        group_tokens = self.tokens[group_id]
+        balance = group_tokens.get(sender_id, 0)
+        if balance == 0:
+            yield event.plain_result("你已经没有剩余代币，全压失败。")
+            return
+        # 全压：直接将剩余余额投入
+        allin_amount = balance
+        group_tokens[sender_id] = 0
+        player["round_bet"] += allin_amount
+        game.pot += allin_amount
+        # 如有必要，更新当前注（例如全压后玩家投注更高）
+        if player["round_bet"] > game.current_bet:
+            game.current_bet = player["round_bet"]
+        self.save_tokens()
+        yield event.plain_result(f"你全压了 {allin_amount} 代币。当前彩池: {game.pot} 代币。")
+
+    @poker.command("check")
+    async def check(self, event: AstrMessageEvent):
+        '''看牌：当你已经跟满当前注额时，可选择看牌'''
+        group_id = self.get_group_id(event)
+        if group_id not in self.games:
+            yield event.plain_result("当前群聊没有正在进行的游戏。")
+            return
+        game = self.games[group_id]
+        sender_id = event.get_sender_id()
+        player = None
+        for p in game.players:
+            if p["id"] == sender_id and p["active"]:
+                player = p
+                break
+        if not player:
+            yield event.plain_result("你不在当前游戏中或已弃牌。")
+            return
+        if player["round_bet"] < game.current_bet:
+            yield event.plain_result("你当前还未跟满注，无法看牌。")
+            return
+        yield event.plain_result("你选择看牌，等待下一轮行动。")
