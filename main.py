@@ -31,7 +31,7 @@ class PokerGame:
             self.deck = self.create_deck()
         return self.deck.pop()
 
-@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.0.1", "repo url")
+@register("texas_holdem_poker", "Your Name", "Texas Hold'em Poker Bot插件", "1.0.1", "repo url")
 class TexasHoldemPoker(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -101,15 +101,15 @@ class TexasHoldemPoker(Star):
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
-        # 若在群聊中加入，则构造用于私信的统一会话 ID，
-        # 从 event.unified_msg_origin 获取平台名称，构造格式为 "平台名:PRIVATE:sender_id"
+        # 如果在群聊中加入，则构造用于私信的统一会话 ID，
+        # 从 event.unified_msg_origin 获取平台名称，并构造格式为 "平台名:PRIVATE_MESSAGE:sender_id"
         if event.message_obj.group_id:
             parts = event.unified_msg_origin.split(":")
             if len(parts) == 3:
                 platform_name = parts[0]
             else:
-                platform_name = "AIOCQHTTP"  # 若解析失败，则使用默认平台
-            private_unified = f"{platform_name}:PRIVATE:{sender_id}"
+                platform_name = "AIOCQHTTP"  # 默认平台名称
+            private_unified = f"{platform_name}:PRIVATE_MESSAGE:{sender_id}"
         else:
             private_unified = event.unified_msg_origin
 
