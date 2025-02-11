@@ -95,16 +95,14 @@ class TexasHoldemPoker(Star):
             yield event.plain_result("当前群聊没有正在进行的游戏，请先使用 `/poker start` 开始游戏。")
             return
         game = self.games[group_id]
-        sender_id = event.get_sender_id()  # 这里的 sender_id 实际上就是目标用户的 wxid
+        sender_id = event.get_sender_id()  # 这里的 sender_id 就是目标用户的 wxid
         sender_name = event.get_sender_name()
         for player in game.players:
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
-        # 如果是在群聊中加入，则直接使用目标用户的 wxid 作为发送私信时的 session_id，
-        # 而无需构造类似于 "platform:FriendMessage:xxx" 的格式
-        # 注意：此处直接存储 sender_id，即 wxid
-        private_unified = sender_id
+        # 根据要求：平台固定为 "gewechat"，消息类型固定为 FriendMessage，session_id 为 sender_id
+        private_unified = f"gewechat:FriendMessage:{sender_id}"
 
         # 初始化该群的代币数据
         if group_id not in self.tokens:
@@ -123,7 +121,7 @@ class TexasHoldemPoker(Star):
             "id": sender_id,
             "name": sender_name,
             "cards": [],
-            "private_unified": private_unified,  # 此处存储的就是 wxid
+            "private_unified": private_unified,  # 此处存储完整的 session 字符串
             "round_bet": 0,
             "active": True
         })
@@ -145,13 +143,12 @@ class TexasHoldemPoker(Star):
         if game.phase != "waiting":
             yield event.plain_result("游戏已经开始发牌了。")
             return
-        # 为每个玩家发两张手牌，并通过私信发送
+        # 为每个玩家发两张手牌，并通过私信发送（使用存储的 private_unified）
         for player in game.players:
             card1 = game.deal_card()
             card2 = game.deal_card()
             player["cards"] = [card1, card2]
             chain = MessageChain().message(f"你的手牌: {card1} {card2}")
-            # 直接使用存储的 wxid 作为 session，此时 send_message 内部可识别为私信目标
             await self.context.send_message(player["private_unified"], chain)
         # 分配盲注：第一个玩家为小盲，第二个为大盲
         small_blind_player = game.players[0]
