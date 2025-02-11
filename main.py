@@ -1,5 +1,5 @@
 from astrbot.api.all import *
-from astrbot.core.platform.sources.gewechat.client import *
+from astrbot.core.platform.sources.gewechat.client import SimpleGewechatClient
 
 import random
 import json
@@ -104,9 +104,9 @@ class TexasHoldemPoker(Star):
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
-        # 构造私信 session 字符串（供记录使用）——格式为 "gewechat:FriendMessage:{wxid}"
+        # 记录一个私信 session 字符串（供记录使用），格式为 "gewechat:FriendMessage:{wxid}"
         private_unified = f"gewechat:FriendMessage:{sender_id}"
-
+        
         # 初始化该群的代币数据
         if group_id not in self.tokens:
             self.tokens[group_id] = {}
@@ -124,7 +124,7 @@ class TexasHoldemPoker(Star):
             "id": sender_id,
             "name": sender_name,
             "cards": [],
-            "private_unified": private_unified,  # 记录完整 session 字符串（可供调试或记录使用）
+            "private_unified": private_unified,  # 记录完整 session 字符串（调试用）
             "round_bet": 0,
             "active": True
         })
@@ -146,13 +146,13 @@ class TexasHoldemPoker(Star):
         if game.phase != "waiting":
             yield event.plain_result("游戏已经开始发牌了。")
             return
-        # 发牌时直接调用平台适配器的 post_text 方法向目标 wxid 发送私信
+        # 发牌时直接调用 SimpleGewechatClient 的 post_text 方法向目标 wxid 发送私信
         for player in game.players:
             card1 = game.deal_card()
             card2 = game.deal_card()
             player["cards"] = [card1, card2]
             content = f"你的手牌: {card1} {card2}"
-            # 直接使用目标用户的 wxid（sender_id）发送私信
+            # 直接使用目标用户的 wxid (即 sender_id) 来发送私信
             await self.context.platform_adapter.client.post_text(player["id"], content)
         # 分配盲注：第一个玩家为小盲，第二个为大盲
         small_blind_player = game.players[0]
