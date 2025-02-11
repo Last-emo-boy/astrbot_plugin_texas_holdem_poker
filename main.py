@@ -271,6 +271,36 @@ class TexasHoldemPoker(Star):
             f"{sender_name} 加入游戏，扣除买入 {buyin} 代币。当前彩池: {game.pot} 代币。你当前余额: {self.tokens[group_id][sender_id]}"
         )
 
+    @poker.command("fold")
+    async def fold(self, event: AstrMessageEvent):
+        '''弃牌：放弃本局游戏'''
+        group_id = self.get_group_id(event)
+        if group_id not in self.games:
+            yield event.plain_result("当前群聊没有正在进行的游戏。")
+            return
+        game = self.games[group_id]
+        sender_id = event.get_sender_id()
+        found = False
+        for p in game.players:
+            if p["id"] == sender_id and p["active"]:
+                p["active"] = False
+                found = True
+                yield event.plain_result(f"{p['name']} 已弃牌。")
+                break
+        if not found:
+            yield event.plain_result("你不在当前游戏中或已弃牌。")
+            return
+
+        # 检查是否只剩下唯一活跃玩家
+        active_players = [p for p in game.players if p["active"]]
+        if len(active_players) == 1:
+            winner = active_players[0]
+            # 将彩池奖励给唯一的活跃玩家
+            self.tokens[group_id][winner["id"]] += game.pot
+            self.save_tokens()
+            yield event.plain_result(f"只有 {winner['name']} 一人未弃牌，赢得彩池 {game.pot} 代币！")
+            del self.games[group_id]
+
     @poker.command("deal")
     async def deal_hole_cards(self, event: AstrMessageEvent):
         group_id = self.get_group_id(event)
