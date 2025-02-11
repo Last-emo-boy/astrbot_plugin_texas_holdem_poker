@@ -11,7 +11,8 @@ class PokerGame:
         self.big_blind = big_blind            # 大盲注金额
         self.bet_amount = bet_amount          # 后续每轮固定跟注金额
         self.max_players = max_players        # 最大玩家数
-        self.players = []                     # 每个玩家记录：{"id": str, "name": str, "cards": list, "unified": str, "round_bet": int, "active": bool}
+        # 每个玩家记录结构：{"id": str, "name": str, "cards": list, "private_unified": str, "round_bet": int, "active": bool}
+        self.players = []                     
         self.deck = self.create_deck()        # 洗好的牌堆
         self.community_cards = []             # 公共牌
         self.phase = "waiting"                # 游戏阶段：waiting, preflop, flop, turn, river, showdown
@@ -30,14 +31,14 @@ class PokerGame:
             self.deck = self.create_deck()
         return self.deck.pop()
 
-@register("texas_holdem_poker", "Your Name", "Texas Hold'em Poker Bot插件", "1.0.1", "repo url")
+@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.0.1", "repo url")
 class TexasHoldemPoker(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        # self.games：按照群组（或私聊）ID隔离的游戏状态
+        # 按照群聊（或私聊）ID隔离的游戏状态
         self.games = {}  
-        # self.tokens：按照群组ID存储代币余额，结构为 {group_id: {user_id: token}}
+        # 按照群组ID存储代币余额，结构为 {group_id: {user_id: token}}
         self.tokens_file = os.path.join(os.path.dirname(__file__), "tokens.json")
         self.tokens = self.load_tokens()
 
@@ -59,7 +60,7 @@ class TexasHoldemPoker(Star):
 
     def get_group_id(self, event: AstrMessageEvent) -> str:
         group_id = event.message_obj.group_id
-        # 如果群组ID为空，则认为是私聊，使用 "private_发送者ID" 作为标识
+        # 如果群组ID为空，则认为是私聊，使用 "private_{发送者ID}" 作为标识
         if not group_id:
             group_id = f"private_{event.get_sender_id()}"
         return group_id
@@ -100,6 +101,12 @@ class TexasHoldemPoker(Star):
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
+        # 如果在群聊中加入，则构造用于私信的统一会话ID（格式为 "private_{sender_id}"），否则直接使用 event.unified_msg_origin
+        if event.message_obj.group_id:
+            private_unified = f"private_{sender_id}"
+        else:
+            private_unified = event.unified_msg_origin
+
         # 初始化该群的代币数据
         if group_id not in self.tokens:
             self.tokens[group_id] = {}
@@ -117,7 +124,7 @@ class TexasHoldemPoker(Star):
             "id": sender_id,
             "name": sender_name,
             "cards": [],
-            "unified": event.unified_msg_origin,
+            "private_unified": private_unified,
             "round_bet": 0,
             "active": True
         })
@@ -139,13 +146,13 @@ class TexasHoldemPoker(Star):
         if game.phase != "waiting":
             yield event.plain_result("游戏已经开始发牌了。")
             return
-        # 为每个玩家发两张手牌，并通过私信发送
+        # 为每个玩家发两张手牌，并通过私信发送（使用存储的 private_unified）
         for player in game.players:
             card1 = game.deal_card()
             card2 = game.deal_card()
             player["cards"] = [card1, card2]
             chain = MessageChain().message(f"你的手牌: {card1} {card2}")
-            await self.context.send_message(player["unified"], chain)
+            await self.context.send_message(player["private_unified"], chain)
         # 分配盲注：第一个玩家为小盲，第二个为大盲
         small_blind_player = game.players[0]
         sb_amount = game.small_blind
@@ -168,7 +175,7 @@ class TexasHoldemPoker(Star):
         game.current_bet = game.big_blind
         game.phase = "preflop"
         yield event.plain_result(
-            f"手牌已发出，各玩家请查看私信。\n盲注分配：{small_blind_player['name']} 小盲 {sb}，{big_blind_player['name']} 大盲 {bb}。\n当前预注金额为 {game.current_bet}。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
+            f"手牌已发出，各玩家请查看私信。\n盲注分配：{small_blind_player['name']} 小盲 {sb}，{big_blind_player['name']} 大盲 {bb}。\n当前预注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
         )
 
     @poker.command("call")
