@@ -109,7 +109,7 @@ class TexasHoldemPoker(Star):
                 platform_name = parts[0]
             else:
                 platform_name = "AIOCQHTTP"  # 默认平台名称
-            private_unified = f"{platform_name}:PRIVATE_MESSAGE:{sender_id}"
+            private_unified = f"{platform_name}:FriendMessage:{sender_id}"
         else:
             private_unified = event.unified_msg_origin
 
