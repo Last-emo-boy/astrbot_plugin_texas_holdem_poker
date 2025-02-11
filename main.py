@@ -34,7 +34,7 @@ class PokerGame:
         return self.deck.pop()
 
 
-@register("texas_holdem_poker", "Your Name", "Texas Hold'em Poker Bot插件", "1.0.1", "repo url")
+@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.0.1", "https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker")
 class TexasHoldemPoker(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
