@@ -351,59 +351,59 @@ class TexasHoldemPoker(Star):
             yield event.plain_result(f"只有 {winner['name']} 一人未弃牌，赢得彩池 {game.pot} 代币！")
             del self.games[group_id]
 
-        @poker.command("next")
-        async def next_round(self, event: AstrMessageEvent):
-            group_id = self.get_group_id(event)
-            if group_id not in self.games:
-                yield event.plain_result("当前群聊没有正在进行的游戏。")
-                return
-            game = self.games[group_id]
-            not_called = [p["name"] for p in game.players if p["active"] and p["round_bet"] < game.current_bet]
-            if not_called:
-                yield event.plain_result("以下玩家还未跟注: " + ", ".join(not_called))
-                return
+    @poker.command("next")
+    async def next_round(self, event: AstrMessageEvent):
+        group_id = self.get_group_id(event)
+        if group_id not in self.games:
+            yield event.plain_result("当前群聊没有正在进行的游戏。")
+            return
+        game = self.games[group_id]
+        not_called = [p["name"] for p in game.players if p["active"] and p["round_bet"] < game.current_bet]
+        if not_called:
+            yield event.plain_result("以下玩家还未跟注: " + ", ".join(not_called))
+            return
 
-            if game.phase == "preflop":
-                game.deal_card()  # 烧牌
-                flop_cards = [game.deal_card() for _ in range(3)]
-                game.community_cards.extend(flop_cards)
-                game.phase = "flop"
-                for p in game.players:
-                    if p["active"]:
-                        p["round_bet"] = 0
-                game.current_bet = game.bet_amount
-                yield event.plain_result(
-                    f"翻牌: {' '.join(flop_cards)}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
-                )
-            elif game.phase == "flop":
-                game.deal_card()  # 烧牌
-                turn_card = game.deal_card()
-                game.community_cards.append(turn_card)
-                game.phase = "turn"
-                for p in game.players:
-                    if p["active"]:
-                        p["round_bet"] = 0
-                game.current_bet = game.bet_amount
-                yield event.plain_result(
-                    f"转牌: {turn_card}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
-                )
-            elif game.phase == "turn":
-                game.deal_card()  # 烧牌
-                river_card = game.deal_card()
-                game.community_cards.append(river_card)
-                game.phase = "river"
-                for p in game.players:
-                    if p["active"]:
-                        p["round_bet"] = 0
-                game.current_bet = game.bet_amount
-                yield event.plain_result(
-                    f"河牌: {river_card}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入摊牌阶段。"
-                )
-            elif game.phase == "river":
-                async for result in self.showdown(event):
-                    yield result
-            else:
-                yield event.plain_result("游戏阶段错误。")
+        if game.phase == "preflop":
+            game.deal_card()  # 烧牌
+            flop_cards = [game.deal_card() for _ in range(3)]
+            game.community_cards.extend(flop_cards)
+            game.phase = "flop"
+            for p in game.players:
+                if p["active"]:
+                    p["round_bet"] = 0
+            game.current_bet = game.bet_amount
+            yield event.plain_result(
+                f"翻牌: {' '.join(flop_cards)}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
+            )
+        elif game.phase == "flop":
+            game.deal_card()  # 烧牌
+            turn_card = game.deal_card()
+            game.community_cards.append(turn_card)
+            game.phase = "turn"
+            for p in game.players:
+                if p["active"]:
+                    p["round_bet"] = 0
+            game.current_bet = game.bet_amount
+            yield event.plain_result(
+                f"转牌: {turn_card}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
+            )
+        elif game.phase == "turn":
+            game.deal_card()  # 烧牌
+            river_card = game.deal_card()
+            game.community_cards.append(river_card)
+            game.phase = "river"
+            for p in game.players:
+                if p["active"]:
+                    p["round_bet"] = 0
+            game.current_bet = game.bet_amount
+            yield event.plain_result(
+                f"河牌: {river_card}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入摊牌阶段。"
+            )
+        elif game.phase == "river":
+            async for result in self.showdown(event):
+                yield result
+        else:
+            yield event.plain_result("游戏阶段错误。")
 
 
     @poker.command("showdown")
