@@ -171,6 +171,17 @@ class TexasHoldemPoker(Star):
             f"新德州扑克游戏开始！买入: {buyin}, 小盲注: {small_blind}, 大盲注: {big_blind}, 每轮跟注金额: {bet_amount}, 最大玩家: {max_players}。\n请发送 `/poker join` 加入游戏。"
         )
 
+    @poker.command("add_balance")
+    async def add_balance(self, event: AstrMessageEvent, amount: int):
+        '''增加余额：给当前用户增加指定数量的代币'''
+        group_id = self.get_group_id(event)
+        sender_id = event.get_sender_id()
+        if group_id not in self.tokens:
+            self.tokens[group_id] = {}
+        self.tokens[group_id][sender_id] = self.tokens[group_id].get(sender_id, self.config.get("initial_token", 1000)) + amount
+        self.save_tokens()
+        yield event.plain_result(f"成功增加 {amount} 代币。你当前余额: {self.tokens[group_id][sender_id]}")
+
     @poker.command("join")
     async def join_game(self, event: AstrMessageEvent):
         group_id = self.get_group_id(event)
@@ -372,9 +383,18 @@ class TexasHoldemPoker(Star):
                 if p["active"]:
                     p["round_bet"] = 0
             game.current_bet = game.bet_amount
-            yield event.plain_result(
-                f"翻牌: {' '.join(flop_cards)}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
-            )
+            TMPL = '''
+            <div style="font-size:24px; font-family:Arial, sans-serif; text-align:center; padding:20px; background:#f2f2f2; border-radius:8px;">
+                <h2 style="color:#2c3e50;">翻牌阶段</h2>
+                <p style="margin:10px 0;">翻牌: <span style="font-weight:bold;">{{ cards }}</span></p>
+                <p style="margin:10px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
+                <p style="margin:10px 0;">请使用 /poker call 跟注，或 /poker next 进入下一阶段</p>
+            </div>
+            '''
+            data = {"cards": " ".join(flop_cards), "current_bet": game.current_bet}
+            url = await self.html_render(TMPL, data)
+            yield event.image_result(url)
+
         elif game.phase == "flop":
             game.deal_card()  # 烧牌
             turn_card = game.deal_card()
@@ -384,9 +404,18 @@ class TexasHoldemPoker(Star):
                 if p["active"]:
                     p["round_bet"] = 0
             game.current_bet = game.bet_amount
-            yield event.plain_result(
-                f"转牌: {turn_card}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入下一阶段。"
-            )
+            TMPL = '''
+            <div style="font-size:24px; font-family:Arial, sans-serif; text-align:center; padding:20px; background:#f2f2f2; border-radius:8px;">
+                <h2 style="color:#2c3e50;">转牌阶段</h2>
+                <p style="margin:10px 0;">转牌: <span style="font-weight:bold;">{{ card }}</span></p>
+                <p style="margin:10px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
+                <p style="margin:10px 0;">请使用 /poker call 跟注，或 /poker next 进入下一阶段</p>
+            </div>
+            '''
+            data = {"card": turn_card, "current_bet": game.current_bet}
+            url = await self.html_render(TMPL, data)
+            yield event.image_result(url)
+
         elif game.phase == "turn":
             game.deal_card()  # 烧牌
             river_card = game.deal_card()
@@ -396,14 +425,24 @@ class TexasHoldemPoker(Star):
                 if p["active"]:
                     p["round_bet"] = 0
             game.current_bet = game.bet_amount
-            yield event.plain_result(
-                f"河牌: {river_card}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入摊牌阶段。"
-            )
+            TMPL = '''
+            <div style="font-size:24px; font-family:Arial, sans-serif; text-align:center; padding:20px; background:#f2f2f2; border-radius:8px;">
+                <h2 style="color:#2c3e50;">河牌阶段</h2>
+                <p style="margin:10px 0;">河牌: <span style="font-weight:bold;">{{ card }}</span></p>
+                <p style="margin:10px 0;">当前轮下注金额: <span style="font-weight:bold;">{{ current_bet }}</span> 代币</p>
+                <p style="margin:10px 0;">请使用 /poker call 跟注，或 /poker next 进入摊牌阶段</p>
+            </div>
+            '''
+            data = {"card": river_card, "current_bet": game.current_bet}
+            url = await self.html_render(TMPL, data)
+            yield event.image_result(url)
+
         elif game.phase == "river":
             async for result in self.showdown(event):
                 yield result
         else:
             yield event.plain_result("游戏阶段错误。")
+
 
 
     @poker.command("showdown")
@@ -448,24 +487,105 @@ class TexasHoldemPoker(Star):
             share = game.pot // len(winners)
             for pid, name in winners:
                 self.tokens[group_id][pid] += share
+                
+        # 在决定赢家之后，输出所有参与玩家的最终余额
+        final_balances = "参与玩家最终余额：\n"
+        for player in game.players:
+            uid = player["id"]
+            balance = self.tokens[group_id].get(uid, self.config.get("initial_token", 1000))
+            final_balances += f"{player['name']}: {balance} 代币\n"
+        yield event.plain_result(final_balances)
+
         self.save_tokens()
         yield event.plain_result(msg)
         del self.games[group_id]
 
     @poker.command("status")
     async def game_status(self, event: AstrMessageEvent):
+        '''显示当前游戏状态（美化渲染版）'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
             return
         game = self.games[group_id]
-        result = f"游戏状态: {game.phase}\n彩池: {game.pot} 代币\n玩家列表：\n"
+        players_data = []
         for p in game.players:
-            status = "活跃" if p["active"] else "弃牌"
-            result += f"- {p['name']}：本轮投注 {p['round_bet']} 代币，状态: {status}\n"
-        if game.community_cards:
-            result += f"公共牌: {' '.join(game.community_cards)}\n"
-        yield event.plain_result(result)
+            players_data.append({
+                "name": p["name"],
+                "status": "活跃" if p["active"] else "弃牌",
+                "round_bet": p["round_bet"],
+                "cards": " ".join(p["cards"]) if p["cards"] else "未发牌"
+            })
+        data = {
+            "phase": game.phase,
+            "pot": game.pot,
+            "community_cards": " ".join(game.community_cards) if game.community_cards else "无",
+            "players": players_data
+        }
+        TMPL = '''
+        <html>
+        <head>
+            <style>
+                body {
+                    font-family: 'Arial', sans-serif;
+                    background-color: #f7f7f7;
+                    margin: 0;
+                    padding: 20px;
+                }
+                .container {
+                    background-color: #fff;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                    padding: 20px;
+                }
+                h2 {
+                    color: #2c3e50;
+                    text-align: center;
+                    margin-bottom: 20px;
+                }
+                .status {
+                    font-size: 18px;
+                    margin-bottom: 10px;
+                }
+                .players {
+                    margin-top: 20px;
+                }
+                .player {
+                    border-bottom: 1px solid #ecf0f1;
+                    padding: 10px 0;
+                }
+                .player:last-child {
+                    border-bottom: none;
+                }
+                .label {
+                    font-weight: bold;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h2>德州扑克游戏状态</h2>
+                <p class="status">游戏阶段：{{ phase }}</p>
+                <p class="status">彩池：{{ pot }} 代币</p>
+                <p class="status">公共牌：{{ community_cards }}</p>
+                <div class="players">
+                    <h3>玩家信息</h3>
+                    {% for player in players %}
+                    <div class="player">
+                        <p><span class="label">姓名：</span>{{ player.name }}</p>
+                        <p><span class="label">状态：</span>{{ player.status }}</p>
+                        <p><span class="label">本轮投注：</span>{{ player.round_bet }} 代币</p>
+                        <p><span class="label">手牌：</span>{{ player.cards }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </body>
+        </html>
+        '''
+        url = await self.html_render(TMPL, data)
+        yield event.image_result(url)
+
 
     @poker.command("tokens")
     async def my_tokens(self, event: AstrMessageEvent):
