@@ -221,7 +221,6 @@ class TexasHoldemPoker(Star):
             f"新德州扑克游戏开始！买入: {buyin}, 小盲注: {small_blind}, 大盲注: {big_blind}, 每轮跟注金额: {bet_amount}, 最大玩家: {max_players}。\n请发送 `/poker join` 加入游戏。"
         )
         
-    @permission_type(PermissionType.ADMIN)
     @poker.command("add_balance")
     async def add_balance(self, event: AstrMessageEvent, amount: int):
         '''增加余额：给当前用户增加指定数量的代币'''
