@@ -18,6 +18,7 @@ class PokerGame:
         self.phase = "waiting"              # 游戏阶段：waiting, preflop, flop, turn, river, showdown
         self.pot = 0                        # 当前彩池
         self.current_bet = 0                # 当前轮要求的投注额度
+        self.current_turn_index = 0         # 新增：当前行动玩家索引
 
     def create_deck(self):
         suits = ['♠', '♥', '♦', '♣']
@@ -30,6 +31,19 @@ class PokerGame:
         if not self.deck:
             self.deck = self.create_deck()
         return self.deck.pop()
+
+    def advance_turn(self):
+        """轮转到下一个活跃玩家"""
+        n = len(self.players)
+        if n == 0:
+            return
+        # 从当前行动玩家之后开始查找
+        for i in range(1, n+1):
+            index = (self.current_turn_index + i) % n
+            if self.players[index]["active"]:
+                self.current_turn_index = index
+                return
+
 
 
 # -------------------------
@@ -284,22 +298,24 @@ class TexasHoldemPoker(Star):
         for p in game.players:
             if p["id"] == sender_id and p["active"]:
                 p["active"] = False
+                # 重置该玩家的下注金额，避免被误判为已跟注
+                p["round_bet"] = 0
                 found = True
                 yield event.plain_result(f"{p['name']} 已弃牌。")
                 break
         if not found:
             yield event.plain_result("你不在当前游戏中或已弃牌。")
             return
-
         # 检查是否只剩下唯一活跃玩家
         active_players = [p for p in game.players if p["active"]]
         if len(active_players) == 1:
             winner = active_players[0]
-            # 将彩池奖励给唯一的活跃玩家
-            self.tokens[group_id][winner["id"]] += game.pot
+            group_tokens = self.tokens[group_id]
+            group_tokens[winner["id"]] += game.pot
             self.save_tokens()
             yield event.plain_result(f"只有 {winner['name']} 一人未弃牌，赢得彩池 {game.pot} 代币！")
             del self.games[group_id]
+
 
     @poker.command("deal")
     async def deal_hole_cards(self, event: AstrMessageEvent):
@@ -314,6 +330,12 @@ class TexasHoldemPoker(Star):
         if game.phase != "waiting":
             yield event.plain_result("游戏已经开始发牌了。")
             return
+        # 设置当前行动玩家：如果有 >=3 个玩家，则从大盲（索引1）之后开始（即索引2）；否则从第 0 位开始
+        if len(game.players) >= 3:
+            game.current_turn_index = 2
+        else:
+            game.current_turn_index = 0
+
 
         # 动态获取当前事件所属平台适配器
         platform_name = event.platform_meta.name
@@ -363,6 +385,10 @@ class TexasHoldemPoker(Star):
             return
         game = self.games[group_id]
         sender_id = event.get_sender_id()
+        # 判断是否轮到你操作
+        if game.players[game.current_turn_index]["id"] != sender_id:
+            yield event.plain_result("请等待轮到你操作。")
+            return
         player = None
         for p in game.players:
             if p["id"] == sender_id and p["active"]:
@@ -383,6 +409,8 @@ class TexasHoldemPoker(Star):
         player["round_bet"] += required
         game.pot += required
         self.save_tokens()
+        # 完成操作后轮转到下一位活跃玩家
+        game.advance_turn()
         yield event.plain_result(f"你已跟注，支付 {required} 代币。当前彩池: {game.pot} 代币。")
 
     @poker.command("raise")
@@ -394,6 +422,10 @@ class TexasHoldemPoker(Star):
             return
         game = self.games[group_id]
         sender_id = event.get_sender_id()
+        # 判断是否轮到你操作
+        if game.players[game.current_turn_index]["id"] != sender_id:
+            yield event.plain_result("请等待轮到你操作。")
+            return
         player = None
         for p in game.players:
             if p["id"] == sender_id and p["active"]:
@@ -411,8 +443,10 @@ class TexasHoldemPoker(Star):
         group_tokens[sender_id] -= total_raise
         player["round_bet"] += total_raise
         game.pot += total_raise
+        # 更新当前预注金额为该玩家的总下注
         game.current_bet = player["round_bet"]
         self.save_tokens()
+        game.advance_turn()
         yield event.plain_result(f"你加注了 {increment} 代币，总支付 {total_raise} 代币。当前彩池: {game.pot} 代币，新预注金额: {game.current_bet} 代币。")
 
     @poker.command("fold")
@@ -625,6 +659,10 @@ class TexasHoldemPoker(Star):
             return
         game = self.games[group_id]
         sender_id = event.get_sender_id()
+        # 判断是否轮到你操作
+        if game.players[game.current_turn_index]["id"] != sender_id:
+            yield event.plain_result("请等待轮到你操作。")
+            return
         player = None
         for p in game.players:
             if p["id"] == sender_id and p["active"]:
@@ -638,15 +676,14 @@ class TexasHoldemPoker(Star):
         if balance == 0:
             yield event.plain_result("你已经没有剩余代币，全压失败。")
             return
-        # 全压：直接将剩余余额投入
         allin_amount = balance
         group_tokens[sender_id] = 0
         player["round_bet"] += allin_amount
         game.pot += allin_amount
-        # 如有必要，更新当前注（例如全压后玩家投注更高）
         if player["round_bet"] > game.current_bet:
             game.current_bet = player["round_bet"]
         self.save_tokens()
+        game.advance_turn()
         yield event.plain_result(f"你全压了 {allin_amount} 代币。当前彩池: {game.pot} 代币。")
 
     @poker.command("check")
@@ -658,6 +695,10 @@ class TexasHoldemPoker(Star):
             return
         game = self.games[group_id]
         sender_id = event.get_sender_id()
+        # 判断是否轮到你操作
+        if game.players[game.current_turn_index]["id"] != sender_id:
+            yield event.plain_result("请等待轮到你操作。")
+            return
         player = None
         for p in game.players:
             if p["id"] == sender_id and p["active"]:
@@ -669,4 +710,53 @@ class TexasHoldemPoker(Star):
         if player["round_bet"] < game.current_bet:
             yield event.plain_result("你当前还未跟满注，无法看牌。")
             return
+        # 看牌操作后，轮转到下一位
+        game.advance_turn()
         yield event.plain_result("你选择看牌，等待下一轮行动。")
+
+    @poker.command("new_hand")
+    async def new_hand(self, event: AstrMessageEvent):
+        '''新局开始：结束当前局后，移动盲注顺时针开始新一局游戏'''
+        group_id = self.get_group_id(event)
+        if group_id not in self.games:
+            yield event.plain_result("当前群聊没有正在进行的游戏，请先使用 `/poker start` 开始游戏。")
+            return
+        game = self.games[group_id]
+        # 轮转玩家顺序：将第一个玩家移至队尾
+        game.players = game.players[1:] + game.players[:1]
+        # 重置牌局状态
+        game.deck = game.create_deck()
+        game.community_cards = []
+        game.phase = "waiting"
+        game.pot = 0
+        game.current_bet = 0
+        for p in game.players:
+            p["round_bet"] = 0
+        # 扣除盲注：新小盲为 players[0]，新大盲为 players[1]
+        group_tokens = self.tokens[group_id]
+        small_blind_player = game.players[0]
+        big_blind_player = game.players[1] if len(game.players) >= 2 else None
+        sb = game.small_blind
+        bb = game.big_blind
+        if group_tokens.get(small_blind_player["id"], 0) < sb:
+            yield event.plain_result(f"小盲 {small_blind_player['name']} 余额不足。")
+            return
+        group_tokens[small_blind_player["id"]] -= sb
+        small_blind_player["round_bet"] = sb
+        game.pot += sb
+        if big_blind_player:
+            if group_tokens.get(big_blind_player["id"], 0) < bb:
+                yield event.plain_result(f"大盲 {big_blind_player['name']} 余额不足。")
+                return
+            group_tokens[big_blind_player["id"]] -= bb
+            big_blind_player["round_bet"] = bb
+            game.pot += bb
+        self.save_tokens()
+        # 设置当前行动玩家：通常从大盲后开始（若玩家数>=3，则索引为2，否则为0）
+        if len(game.players) >= 3:
+            game.current_turn_index = 2
+        else:
+            game.current_turn_index = 0
+        yield event.plain_result(
+            f"新局开始！新小盲：{small_blind_player['name']} 付 {sb} 代币，新大盲：{big_blind_player['name'] if big_blind_player else '无'} 付 {bb if big_blind_player else 0} 代币，当前彩池: {game.pot} 代币。\n请使用 `/poker deal` 发牌。"
+        )
