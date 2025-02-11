@@ -1,46 +1,103 @@
+import itertools
 from astrbot.api.all import *
 from astrbot.core.platform.sources.gewechat.client import SimpleGewechatClient
 import random
 import json
 import os
 
-# 定义扑克游戏状态类
-class PokerGame:
-    def __init__(self, buyin: int, small_blind: int, big_blind: int, bet_amount: int, max_players: int):
-        self.buyin = buyin                  # 加入游戏时支付的买入金额
-        self.small_blind = small_blind      # 小盲注金额
-        self.big_blind = big_blind          # 大盲注金额
-        self.bet_amount = bet_amount        # 后续每轮固定跟注金额
-        self.max_players = max_players      # 最大玩家数
-        # 玩家记录结构：{"id": str, "name": str, "cards": list, "private_unified": str, "round_bet": int, "active": bool}
-        self.players = []
-        self.deck = self.create_deck()      # 洗好的牌堆
-        self.community_cards = []           # 公共牌
-        self.phase = "waiting"              # 游戏阶段：waiting, preflop, flop, turn, river, showdown
-        self.pot = 0                        # 当前彩池
-        self.current_bet = 0                # 当前轮要求的投注额度
+# -------------------------
+# 牌型评价函数
+# -------------------------
+def evaluate_5cards(cards: list) -> tuple:
+    """
+    对 5 张牌进行评价，返回一个元组表示手牌强度。
+    数值越大表示手牌越好，元组中第一个元素为类别，其它元素为高牌信息。
+    类别定义：
+        8: 同花顺
+        7: 四条
+        6: 葫芦（满堂红）
+        5: 同花
+        4: 顺子
+        3: 三条
+        2: 两对
+        1: 一对
+        0: 高牌
+    """
+    rank_map = {"2":2, "3":3, "4":4, "5":5, "6":6, "7":7, "8":8, "9":9, "10":10, "J":11, "Q":12, "K":13, "A":14}
+    values = []
+    suits = []
+    for card in cards:
+        rank = card[:-1]
+        suit = card[-1]
+        values.append(rank_map[rank])
+        suits.append(suit)
+    values.sort(reverse=True)
+    freq = {}
+    for v in values:
+        freq[v] = freq.get(v, 0) + 1
+    counts = sorted(freq.values(), reverse=True)
+    flush = len(set(suits)) == 1
+    straight = False
+    high_straight = None
+    unique_vals = sorted(set(values))
+    if len(unique_vals) >= 5:
+        for i in range(len(unique_vals)-4):
+            seq = unique_vals[i:i+5]
+            if seq == list(range(seq[0], seq[0]+5)):
+                straight = True
+                high_straight = seq[-1]
+        if set([14,2,3,4,5]).issubset(set(values)):
+            straight = True
+            high_straight = 5
+    if flush and straight:
+        return (8, high_straight, values)
+    elif counts[0] == 4:
+        four_val = max(v for v, c in freq.items() if c == 4)
+        kicker = max(v for v in values if v != four_val)
+        return (7, four_val, kicker)
+    elif counts[0] == 3 and any(c >= 2 for v, c in freq.items() if c >= 2 and v not in [max(v for v, c in freq.items() if c == 3)]):
+        three_val = max(v for v, c in freq.items() if c == 3)
+        pair_val = max(v for v, c in freq.items() if c >= 2 and v != three_val)
+        return (6, three_val, pair_val)
+    elif flush:
+        return (5, values)
+    elif straight:
+        return (4, high_straight, values)
+    elif counts[0] == 3:
+        three_val = max(v for v, c in freq.items() if c == 3)
+        kickers = sorted([v for v in values if v != three_val], reverse=True)
+        return (3, three_val, kickers)
+    elif counts[0] == 2 and len([v for v, c in freq.items() if c == 2]) >= 2:
+        pairs = sorted([v for v, c in freq.items() if c == 2], reverse=True)
+        kicker = max(v for v in values if v not in pairs)
+        return (2, pairs, kicker)
+    elif counts[0] == 2:
+        pair_val = max(v for v, c in freq.items() if c == 2)
+        kickers = sorted([v for v in values if v != pair_val], reverse=True)
+        return (1, pair_val, kickers)
+    else:
+        return (0, values)
 
-    def create_deck(self):
-        suits = ['♠', '♥', '♦', '♣']
-        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-        deck = [f"{rank}{suit}" for suit in suits for rank in ranks]
-        random.shuffle(deck)
-        return deck
+def evaluate_hand(cards: list) -> tuple:
+    """
+    给定 7 张牌（2张手牌+5张公共牌），返回最佳 5 张牌的评价元组。
+    """
+    best = None
+    for combo in itertools.combinations(cards, 5):
+        rank = evaluate_5cards(list(combo))
+        if best is None or rank > best:
+            best = rank
+    return best
 
-    def deal_card(self):
-        if not self.deck:
-            self.deck = self.create_deck()
-        return self.deck.pop()
-
-
-@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.0.1", "https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker")
+# -------------------------
+# 德州扑克插件
+# -------------------------
+@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.1.0", "https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker")
 class TexasHoldemPoker(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        # 按群聊（或私聊）ID隔离的游戏状态
-        self.games = {}
-        # 存储代币余额：{group_id: {user_id: token}}
+        self.games = {}  # 存储各群游戏状态
         self.tokens_file = os.path.join(os.path.dirname(__file__), "tokens.json")
         self.tokens = self.load_tokens()
 
@@ -62,7 +119,6 @@ class TexasHoldemPoker(Star):
 
     def get_group_id(self, event: AstrMessageEvent) -> str:
         group_id = event.message_obj.group_id
-        # 如果群组ID为空，则认为是私聊，使用 "private_{发送者ID}" 作为标识
         if not group_id:
             group_id = f"private_{event.get_sender_id()}"
         return group_id
@@ -95,16 +151,14 @@ class TexasHoldemPoker(Star):
             yield event.plain_result("当前群聊没有正在进行的游戏，请先使用 `/poker start` 开始游戏。")
             return
         game = self.games[group_id]
-        sender_id = event.get_sender_id()  # wxid
+        sender_id = event.get_sender_id()
         sender_name = event.get_sender_name()
         for player in game.players:
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
-        # 记录一个私信 session 字符串供记录使用（格式："gewechat:FriendMessage:{wxid}"）
+        # 记录私信 session 字符串供记录使用（格式："gewechat:FriendMessage:{wxid}"）
         private_unified = f"gewechat:FriendMessage:{sender_id}"
-
-        # 初始化该群的代币数据
         if group_id not in self.tokens:
             self.tokens[group_id] = {}
         if sender_id not in self.tokens[group_id]:
@@ -143,24 +197,22 @@ class TexasHoldemPoker(Star):
             yield event.plain_result("游戏已经开始发牌了。")
             return
 
-        # 动态获取当前事件所属平台的适配器
+        # 动态获取当前事件所属平台适配器
         platform_name = event.platform_meta.name
-        adapter = next((adapter for adapter in self.context.platform_manager.get_insts() 
+        adapter = next((adapter for adapter in self.context.platform_manager.get_insts()
                         if adapter.meta().name.lower() == platform_name.lower()), None)
         if adapter is None:
             yield event.plain_result(f"未找到 {platform_name} 平台适配器。")
             return
 
-        # 对于每个玩家，发牌并使用适配器发送私信
         for player in game.players:
             card1 = game.deal_card()
             card2 = game.deal_card()
             player["cards"] = [card1, card2]
             content = f"你的手牌: {card1} {card2}"
-            # 直接调用平台适配器的 client 的 post_text 方法向目标 wxid 发送私信
+            # 直接使用目标用户的 wxid 发送私信
             await adapter.client.post_text(player["id"], content)
-
-        # 分配盲注：第一个玩家为小盲，第二个为大盲
+        # 分配盲注
         small_blind_player = game.players[0]
         sb_amount = game.small_blind
         group_tokens = self.tokens[group_id]
@@ -214,6 +266,36 @@ class TexasHoldemPoker(Star):
         game.pot += required
         self.save_tokens()
         yield event.plain_result(f"你已跟注，支付 {required} 代币。当前彩池: {game.pot} 代币。")
+
+    @poker.command("raise")
+    async def raise_bet(self, event: AstrMessageEvent, increment: int):
+        '''加注：支付跟注差额再额外加注指定代币'''
+        group_id = self.get_group_id(event)
+        if group_id not in self.games:
+            yield event.plain_result("当前群聊没有正在进行的游戏。")
+            return
+        game = self.games[group_id]
+        sender_id = event.get_sender_id()
+        player = None
+        for p in game.players:
+            if p["id"] == sender_id and p["active"]:
+                player = p
+                break
+        if not player:
+            yield event.plain_result("你不在当前游戏中或已弃牌。")
+            return
+        required_call = game.current_bet - player["round_bet"]
+        total_raise = required_call + increment
+        group_tokens = self.tokens[group_id]
+        if group_tokens.get(sender_id, 0) < total_raise:
+            yield event.plain_result(f"余额不足，需支付 {total_raise} 代币（含跟注差额和加注）。你当前余额: {group_tokens.get(sender_id, 0)}")
+            return
+        group_tokens[sender_id] -= total_raise
+        player["round_bet"] += total_raise
+        game.pot += total_raise
+        game.current_bet = player["round_bet"]
+        self.save_tokens()
+        yield event.plain_result(f"你加注了 {increment} 代币，总支付 {total_raise} 代币。当前彩池: {game.pot} 代币，新预注金额: {game.current_bet} 代币。")
 
     @poker.command("fold")
     async def fold(self, event: AstrMessageEvent):
@@ -291,15 +373,55 @@ class TexasHoldemPoker(Star):
                 f"河牌: {river_card}。\n当前轮下注金额为 {game.current_bet} 代币。请使用 `/poker call` 跟注，或 `/poker next` 进入摊牌阶段。"
             )
         elif game.phase == "river":
-            result = "摊牌：\n"
-            for p in game.players:
-                if p["active"]:
-                    result += f"{p['name']} 的手牌: {' '.join(p['cards'])}\n"
-            result += f"公共牌: {' '.join(game.community_cards)}\n彩池: {game.pot} 代币。"
-            yield event.plain_result(result)
-            del self.games[group_id]
+            yield from self.showdown(event)
         else:
             yield event.plain_result("游戏阶段错误。")
+
+    @poker.command("showdown")
+    async def showdown(self, event: AstrMessageEvent):
+        '''摊牌：计算每个玩家的最佳手牌并决定赢家'''
+        group_id = self.get_group_id(event)
+        if group_id not in self.games:
+            yield event.plain_result("当前群聊没有正在进行的游戏。")
+            return
+        game = self.games[group_id]
+        if game.phase != "river":
+            yield event.plain_result("还未到摊牌阶段。")
+            return
+        results = {}
+        for player in game.players:
+            if not player["active"]:
+                continue
+            if len(game.community_cards) != 5 or len(player["cards"]) != 2:
+                yield event.plain_result("牌数不足，无法摊牌。")
+                return
+            total_cards = player["cards"] + game.community_cards
+            hand_rank = evaluate_hand(total_cards)
+            results[player["id"]] = (player["name"], hand_rank)
+        best = None
+        winners = []
+        for pid, (name, rank) in results.items():
+            if best is None or rank > best:
+                best = rank
+                winners = [(pid, name)]
+            elif rank == best:
+                winners.append((pid, name))
+        msg = "摊牌结果：\n"
+        for pid, (name, rank) in results.items():
+            msg += f"{name}: {rank}\n"
+        if len(winners) == 1:
+            winner_name = winners[0][1]
+            msg += f"\n赢家是 {winner_name}，赢得彩池 {game.pot} 代币！"
+            self.tokens[group_id][winners[0][0]] += game.pot
+        else:
+            names = ", ".join(name for pid, name in winners)
+            msg += f"\n平局：{names}，各得彩池的一半。"
+            share = game.pot // len(winners)
+            for pid, name in winners:
+                self.tokens[group_id][pid] += share
+        self.save_tokens()
+        yield event.plain_result(msg)
+        del self.games[group_id]
 
     @poker.command("status")
     async def game_status(self, event: AstrMessageEvent):
