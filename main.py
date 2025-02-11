@@ -5,6 +5,33 @@ import random
 import json
 import os
 
+class PokerGame:
+    def __init__(self, buyin: int, small_blind: int, big_blind: int, bet_amount: int, max_players: int):
+        self.buyin = buyin                  # 加入游戏时支付的买入金额
+        self.small_blind = small_blind      # 小盲注金额
+        self.big_blind = big_blind          # 大盲注金额
+        self.bet_amount = bet_amount        # 后续每轮固定跟注金额
+        self.max_players = max_players      # 最大玩家数
+        self.players = []                   # 玩家记录：{"id": str, "name": str, "cards": list, ...}
+        self.deck = self.create_deck()      # 洗好的牌堆
+        self.community_cards = []           # 公共牌
+        self.phase = "waiting"              # 游戏阶段：waiting, preflop, flop, turn, river, showdown
+        self.pot = 0                        # 当前彩池
+        self.current_bet = 0                # 当前轮要求的投注额度
+
+    def create_deck(self):
+        suits = ['♠', '♥', '♦', '♣']
+        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+        deck = [f"{rank}{suit}" for suit in suits for rank in ranks]
+        random.shuffle(deck)
+        return deck
+
+    def deal_card(self):
+        if not self.deck:
+            self.deck = self.create_deck()
+        return self.deck.pop()
+
+
 # -------------------------
 # 牌型评价函数
 # -------------------------
