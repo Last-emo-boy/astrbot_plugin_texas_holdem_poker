@@ -1,6 +1,5 @@
 from astrbot.api.all import *
 from astrbot.core.platform.sources.gewechat.client import SimpleGewechatClient
-
 import random
 import json
 import os
@@ -13,7 +12,7 @@ class PokerGame:
         self.big_blind = big_blind          # 大盲注金额
         self.bet_amount = bet_amount        # 后续每轮固定跟注金额
         self.max_players = max_players      # 最大玩家数
-        # 每个玩家记录结构：{"id": str, "name": str, "cards": list, "private_unified": str, "round_bet": int, "active": bool}
+        # 玩家记录结构：{"id": str, "name": str, "cards": list, "private_unified": str, "round_bet": int, "active": bool}
         self.players = []
         self.deck = self.create_deck()      # 洗好的牌堆
         self.community_cards = []           # 公共牌
@@ -39,9 +38,9 @@ class TexasHoldemPoker(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        # 按照群聊（或私聊）ID隔离的游戏状态
+        # 按群聊（或私聊）ID隔离的游戏状态
         self.games = {}
-        # 按照群组ID存储代币余额，结构为 {group_id: {user_id: token}}
+        # 存储代币余额：{group_id: {user_id: token}}
         self.tokens_file = os.path.join(os.path.dirname(__file__), "tokens.json")
         self.tokens = self.load_tokens()
 
@@ -75,7 +74,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("start")
     async def start_game(self, event: AstrMessageEvent):
-        '''开始一局新的德州扑克游戏'''
         group_id = self.get_group_id(event)
         if group_id in self.games:
             yield event.plain_result("本群已存在正在进行的游戏，请结束当前游戏后再开始新游戏。")
@@ -92,7 +90,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("join")
     async def join_game(self, event: AstrMessageEvent):
-        '''加入当前德州扑克游戏'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏，请先使用 `/poker start` 开始游戏。")
@@ -104,9 +101,9 @@ class TexasHoldemPoker(Star):
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
-        # 记录一个私信 session 字符串（供记录使用），格式为 "gewechat:FriendMessage:{wxid}"
+        # 记录一个私信 session 字符串供记录使用（格式："gewechat:FriendMessage:{wxid}"）
         private_unified = f"gewechat:FriendMessage:{sender_id}"
-        
+
         # 初始化该群的代币数据
         if group_id not in self.tokens:
             self.tokens[group_id] = {}
@@ -124,7 +121,7 @@ class TexasHoldemPoker(Star):
             "id": sender_id,
             "name": sender_name,
             "cards": [],
-            "private_unified": private_unified,  # 记录完整 session 字符串（调试用）
+            "private_unified": private_unified,
             "round_bet": 0,
             "active": True
         })
@@ -134,7 +131,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("deal")
     async def deal_hole_cards(self, event: AstrMessageEvent):
-        '''发牌：给每个玩家发两张手牌（通过私信发送），并分配盲注'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
@@ -146,14 +142,24 @@ class TexasHoldemPoker(Star):
         if game.phase != "waiting":
             yield event.plain_result("游戏已经开始发牌了。")
             return
-        # 发牌时直接调用 SimpleGewechatClient 的 post_text 方法向目标 wxid 发送私信
+
+        # 动态获取当前事件所属平台的适配器
+        platform_name = event.platform_meta.name
+        adapter = next((adapter for adapter in self.context.platform_manager.get_insts() 
+                        if adapter.meta().name.lower() == platform_name.lower()), None)
+        if adapter is None:
+            yield event.plain_result(f"未找到 {platform_name} 平台适配器。")
+            return
+
+        # 对于每个玩家，发牌并使用适配器发送私信
         for player in game.players:
             card1 = game.deal_card()
             card2 = game.deal_card()
             player["cards"] = [card1, card2]
             content = f"你的手牌: {card1} {card2}"
-            # 直接使用目标用户的 wxid (即 sender_id) 来发送私信
-            await self.context.platform_adapter.client.post_text(player["id"], content)
+            # 直接调用平台适配器的 client 的 post_text 方法向目标 wxid 发送私信
+            await adapter.client.post_text(player["id"], content)
+
         # 分配盲注：第一个玩家为小盲，第二个为大盲
         small_blind_player = game.players[0]
         sb_amount = game.small_blind
@@ -181,7 +187,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("call")
     async def call_bet(self, event: AstrMessageEvent):
-        '''跟注：支付差额使当前投注达到预注金额'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
@@ -212,7 +217,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("fold")
     async def fold(self, event: AstrMessageEvent):
-        '''弃牌：放弃本局游戏'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
@@ -229,7 +233,6 @@ class TexasHoldemPoker(Star):
         if not found:
             yield event.plain_result("你不在当前游戏中或已弃牌。")
             return
-        # 检查是否只剩下唯一活跃玩家
         active_players = [p for p in game.players if p["active"]]
         if len(active_players) == 1:
             winner = active_players[0]
@@ -241,7 +244,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("next")
     async def next_round(self, event: AstrMessageEvent):
-        '''进入下一阶段：检查所有活跃玩家是否跟注，然后进入下一轮或摊牌'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
@@ -301,7 +303,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("status")
     async def game_status(self, event: AstrMessageEvent):
-        '''显示当前游戏状态'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
             yield event.plain_result("当前群聊没有正在进行的游戏。")
@@ -317,7 +318,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("tokens")
     async def my_tokens(self, event: AstrMessageEvent):
-        '''查看你的代币余额'''
         group_id = self.get_group_id(event)
         if group_id not in self.tokens:
             balance = self.config.get("initial_token", 1000)
@@ -327,7 +327,6 @@ class TexasHoldemPoker(Star):
 
     @poker.command("reset")
     async def reset_game(self, event: AstrMessageEvent):
-        '''重置当前群聊的游戏状态'''
         group_id = self.get_group_id(event)
         if group_id in self.games:
             del self.games[group_id]
