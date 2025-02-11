@@ -101,9 +101,15 @@ class TexasHoldemPoker(Star):
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
-        # 如果在群聊中加入，则构造用于私信的统一会话ID（格式为 "private_{sender_id}"），否则直接使用 event.unified_msg_origin
+        # 若在群聊中加入，则构造用于私信的统一会话 ID，
+        # 从 event.unified_msg_origin 获取平台名称，构造格式为 "平台名:PRIVATE:sender_id"
         if event.message_obj.group_id:
-            private_unified = f"private_{sender_id}"
+            parts = event.unified_msg_origin.split(":")
+            if len(parts) == 3:
+                platform_name = parts[0]
+            else:
+                platform_name = "AIOCQHTTP"  # 若解析失败，则使用默认平台
+            private_unified = f"{platform_name}:PRIVATE:{sender_id}"
         else:
             private_unified = event.unified_msg_origin
 
