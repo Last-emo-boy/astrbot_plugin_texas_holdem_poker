@@ -133,7 +133,7 @@ def evaluate_hand(cards: list) -> tuple:
 # -------------------------
 # 德州扑克插件
 # -------------------------
-@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.2.0", "https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker")
+@register("texas_holdem_poker", "w33d", "Texas Hold'em Poker Bot插件", "1.4.0", "https://github.com/Last-emo-boy/astrbot_plugin_texas_holdem_poker")
 class TexasHoldemPoker(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -611,8 +611,9 @@ class TexasHoldemPoker(Star):
             uid = p["id"]
             balance = self.tokens[group_id].get(uid, self.config.get("initial_token", 1000))
             final_balances += f"{p['name']}: {balance} 代币\n"
-        yield event.plain_result(msg + "\n" + final_balances)
-        del self.games[group_id]
+        yield event.plain_result(msg + "\n" + final_balances + "\n本局已结束，发送 `/poker continue` 继续下一局，或 `/poker end` 结束游戏。")
+        game.finished = True  # 标记本局结束，等待玩家选择是否继续
+
 
 
     @poker.command("status")
@@ -714,17 +715,18 @@ class TexasHoldemPoker(Star):
         game.advance_turn()
         yield event.plain_result("你选择看牌，等待下一轮行动。")
 
-    @poker.command("new_hand")
-    async def new_hand(self, event: AstrMessageEvent):
-        '''新局开始：结束当前局后，移动盲注顺时针开始新一局游戏'''
+    @poker.command("continue")
+    async def continue_game(self, event: AstrMessageEvent):
+        '''继续下一局游戏：重置牌局状态、更新盲注位置，并扣除新盲注'''
         group_id = self.get_group_id(event)
         if group_id not in self.games:
-            yield event.plain_result("当前群聊没有正在进行的游戏，请先使用 `/poker start` 开始游戏。")
+            yield event.plain_result("没有正在进行的游戏，请先使用 `/poker start` 开始游戏。")
             return
         game = self.games[group_id]
-        # 轮转玩家顺序：将第一个玩家移至队尾
-        game.players = game.players[1:] + game.players[:1]
-        # 重置牌局状态
+        if not hasattr(game, "finished") or not game.finished:
+            yield event.plain_result("当前局还未结束，请先摊牌后再决定是否继续。")
+            return
+        # 重置牌局状态但保留玩家列表和余额
         game.deck = game.create_deck()
         game.community_cards = []
         game.phase = "waiting"
@@ -732,31 +734,47 @@ class TexasHoldemPoker(Star):
         game.current_bet = 0
         for p in game.players:
             p["round_bet"] = 0
-        # 扣除盲注：新小盲为 players[0]，新大盲为 players[1]
+        # 更新盲注位置：顺时针移动一位（例如，将玩家列表左移1位）
+        game.players = game.players[1:] + game.players[:1]
+        # 扣除新盲注
         group_tokens = self.tokens[group_id]
         small_blind_player = game.players[0]
         big_blind_player = game.players[1] if len(game.players) >= 2 else None
         sb = game.small_blind
         bb = game.big_blind
         if group_tokens.get(small_blind_player["id"], 0) < sb:
-            yield event.plain_result(f"小盲 {small_blind_player['name']} 余额不足。")
+            yield event.plain_result(f"新小盲 {small_blind_player['name']} 余额不足。")
             return
         group_tokens[small_blind_player["id"]] -= sb
         small_blind_player["round_bet"] = sb
         game.pot += sb
         if big_blind_player:
             if group_tokens.get(big_blind_player["id"], 0) < bb:
-                yield event.plain_result(f"大盲 {big_blind_player['name']} 余额不足。")
+                yield event.plain_result(f"新大盲 {big_blind_player['name']} 余额不足。")
                 return
             group_tokens[big_blind_player["id"]] -= bb
             big_blind_player["round_bet"] = bb
             game.pot += bb
         self.save_tokens()
-        # 设置当前行动玩家：通常从大盲后开始（若玩家数>=3，则索引为2，否则为0）
+        # 设置当前行动玩家：通常从大盲之后开始（若人数>=3，则索引为2，否则为0）
         if len(game.players) >= 3:
             game.current_turn_index = 2
         else:
             game.current_turn_index = 0
+        # 重置结束标志
+        game.finished = False
         yield event.plain_result(
-            f"新局开始！新小盲：{small_blind_player['name']} 付 {sb} 代币，新大盲：{big_blind_player['name'] if big_blind_player else '无'} 付 {bb if big_blind_player else 0} 代币，当前彩池: {game.pot} 代币。\n请使用 `/poker deal` 发牌。"
+            f"新局开始！新小盲：{small_blind_player['name']} 付 {sb} 代币，" +
+            (f"新大盲：{big_blind_player['name']} 付 {bb} 代币，" if big_blind_player else "") +
+            f"当前彩池: {game.pot} 代币。\n请使用 `/poker deal` 发牌。"
         )
+
+    @poker.command("end")
+    async def end_game(self, event: AstrMessageEvent):
+        '''结束当前游戏，清除游戏状态'''
+        group_id = self.get_group_id(event)
+        if group_id in self.games:
+            del self.games[group_id]
+            yield event.plain_result("游戏已结束。")
+        else:
+            yield event.plain_result("当前群聊没有进行中的游戏。")
