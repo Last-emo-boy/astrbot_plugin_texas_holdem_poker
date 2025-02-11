@@ -7,15 +7,15 @@ import os
 class PokerGame:
     def __init__(self, buyin: int, small_blind: int, big_blind: int, bet_amount: int, max_players: int):
         self.buyin = buyin                  # 加入游戏时支付的买入金额
-        self.small_blind = small_blind        # 小盲注金额
-        self.big_blind = big_blind            # 大盲注金额
-        self.bet_amount = bet_amount          # 后续每轮固定跟注金额
-        self.max_players = max_players        # 最大玩家数
+        self.small_blind = small_blind      # 小盲注金额
+        self.big_blind = big_blind          # 大盲注金额
+        self.bet_amount = bet_amount        # 后续每轮固定跟注金额
+        self.max_players = max_players      # 最大玩家数
         # 每个玩家记录结构：{"id": str, "name": str, "cards": list, "private_unified": str, "round_bet": int, "active": bool}
-        self.players = []                     
-        self.deck = self.create_deck()        # 洗好的牌堆
-        self.community_cards = []             # 公共牌
-        self.phase = "waiting"                # 游戏阶段：waiting, preflop, flop, turn, river, showdown
+        self.players = []
+        self.deck = self.create_deck()      # 洗好的牌堆
+        self.community_cards = []           # 公共牌
+        self.phase = "waiting"              # 游戏阶段：waiting, preflop, flop, turn, river, showdown
         self.pot = 0                        # 当前彩池
         self.current_bet = 0                # 当前轮要求的投注额度
 
@@ -37,7 +37,7 @@ class TexasHoldemPoker(Star):
         super().__init__(context)
         self.config = config
         # 按照群聊（或私聊）ID隔离的游戏状态
-        self.games = {}  
+        self.games = {}
         # 按照群组ID存储代币余额，结构为 {group_id: {user_id: token}}
         self.tokens_file = os.path.join(os.path.dirname(__file__), "tokens.json")
         self.tokens = self.load_tokens()
@@ -95,23 +95,16 @@ class TexasHoldemPoker(Star):
             yield event.plain_result("当前群聊没有正在进行的游戏，请先使用 `/poker start` 开始游戏。")
             return
         game = self.games[group_id]
-        sender_id = event.get_sender_id()
+        sender_id = event.get_sender_id()  # 这里的 sender_id 实际上就是目标用户的 wxid
         sender_name = event.get_sender_name()
         for player in game.players:
             if player["id"] == sender_id:
                 yield event.plain_result("你已经加入了本局游戏。")
                 return
-        # 如果在群聊中加入，则构造用于私信的统一会话 ID，
-        # 从 event.unified_msg_origin 获取平台名称，并构造格式为 "平台名:PRIVATE_MESSAGE:sender_id"
-        if event.message_obj.group_id:
-            parts = event.unified_msg_origin.split(":")
-            if len(parts) == 3:
-                platform_name = parts[0]
-            else:
-                platform_name = "AIOCQHTTP"  # 默认平台名称
-            private_unified = f"{platform_name}:FriendMessage:{sender_id}"
-        else:
-            private_unified = event.unified_msg_origin
+        # 如果是在群聊中加入，则直接使用目标用户的 wxid 作为发送私信时的 session_id，
+        # 而无需构造类似于 "platform:FriendMessage:xxx" 的格式
+        # 注意：此处直接存储 sender_id，即 wxid
+        private_unified = sender_id
 
         # 初始化该群的代币数据
         if group_id not in self.tokens:
@@ -130,7 +123,7 @@ class TexasHoldemPoker(Star):
             "id": sender_id,
             "name": sender_name,
             "cards": [],
-            "private_unified": private_unified,
+            "private_unified": private_unified,  # 此处存储的就是 wxid
             "round_bet": 0,
             "active": True
         })
@@ -152,12 +145,13 @@ class TexasHoldemPoker(Star):
         if game.phase != "waiting":
             yield event.plain_result("游戏已经开始发牌了。")
             return
-        # 为每个玩家发两张手牌，并通过私信发送（使用存储的 private_unified）
+        # 为每个玩家发两张手牌，并通过私信发送
         for player in game.players:
             card1 = game.deal_card()
             card2 = game.deal_card()
             player["cards"] = [card1, card2]
             chain = MessageChain().message(f"你的手牌: {card1} {card2}")
+            # 直接使用存储的 wxid 作为 session，此时 send_message 内部可识别为私信目标
             await self.context.send_message(player["private_unified"], chain)
         # 分配盲注：第一个玩家为小盲，第二个为大盲
         small_blind_player = game.players[0]
