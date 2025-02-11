@@ -14,9 +14,19 @@
         "type": "int",
         "default": 20
     },
+    "bet_amount": {
+        "description": "每轮固定跟注金额",
+        "type": "int",
+        "default": 20
+    },
     "max_players": {
         "description": "允许参加游戏的最大玩家数",
         "type": "int",
         "default": 9
+    },
+    "initial_token": {
+        "description": "每个玩家的初始代币数量",
+        "type": "int",
+        "default": 1000
     }
 }
